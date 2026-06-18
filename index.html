@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Disaster Map · Real-Time Natural Disasters</title>
+<meta name="description" content="A live map of the Earth showing real-time natural disasters — earthquakes, hurricanes, volcanoes, wildfires, floods, tsunamis and more." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>" />
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg: #05060a;
+    --panel: rgba(12, 15, 24, 0.78);
+    --panel-solid: #0c0f18;
+    --border: rgba(120, 150, 200, 0.18);
+    --text: #e7ecf5;
+    --muted: #8b95ad;
+    --cyan: #2bd4ff;
+
+    --c-earthquake: #ff3b5c;
+    --c-volcano:    #ff7a18;
+    --c-storm:      #2bd4ff;
+    --c-wildfire:   #ff5e3a;
+    --c-flood:      #3a7bff;
+    --c-tsunami:    #b06bff;
+    --c-tornado:    #ffd23a;
+    --c-other:      #9aa6bd;
+
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+  #map { position: absolute; inset: 0; background: var(--bg); z-index: 1; }
+
+  /* Subtle starfield glow behind the map edges */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(900px 500px at 80% -10%, rgba(43,212,255,0.10), transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, rgba(176,107,255,0.10), transparent 60%);
+    pointer-events: none;
+  }
+
+  /* ============ HEADER ============ */
+  header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, rgba(5,6,10,0.92), rgba(5,6,10,0.0));
+    pointer-events: none;
+  }
+  header > * { pointer-events: auto; }
+
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand .globe { font-size: 26px; filter: drop-shadow(0 0 10px rgba(43,212,255,0.5)); }
+  .brand h1 {
+    font-size: 19px; font-weight: 700; margin: 0; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, #fff, #9fdcff);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .brand .sub {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em;
+    color: var(--cyan); text-transform: uppercase; opacity: 0.8; margin-top: 1px;
+  }
+
+  .spacer { flex: 1; }
+
+  /* Live status pill */
+  .live-pill {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 13px; backdrop-filter: blur(12px);
+  }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #28e07a; box-shadow: 0 0 8px #28e07a; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* ============ PROJECTS DROPDOWN ============ */
+  .dropdown { position: relative; }
+  .dropdown-btn {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 14px; cursor: pointer; backdrop-filter: blur(12px);
+    transition: border-color .2s, box-shadow .2s, transform .1s;
+  }
+  .dropdown-btn:hover { border-color: rgba(43,212,255,0.6); box-shadow: 0 0 20px rgba(43,212,255,0.18); }
+  .dropdown-btn .chev { transition: transform .2s; font-size: 10px; color: var(--cyan); }
+  .dropdown.open .dropdown-btn .chev { transform: rotate(180deg); }
+
+  .dropdown-menu {
+    position: absolute; right: 0; top: calc(100% + 8px);
+    width: 280px; background: var(--panel-solid);
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6); overflow: hidden;
+    opacity: 0; visibility: hidden; transform: translateY(-6px); transition: all .18s ease;
+  }
+  .dropdown.open .dropdown-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+  .dropdown-menu .menu-head {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--muted); padding: 12px 14px 8px;
+  }
+  .project-link {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-decoration: none;
+    color: var(--text); border-top: 1px solid rgba(120,150,200,0.08); transition: background .15s;
+  }
+  .project-link:hover { background: rgba(43,212,255,0.08); }
+  .project-link .pemoji {
+    font-size: 22px; width: 40px; height: 40px; display: grid; place-items: center;
+    background: rgba(43,212,255,0.10); border-radius: 9px; flex-shrink: 0;
+  }
+  .project-link .pname { font-weight: 600; font-size: 14px; }
+  .project-link .pdesc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .project-link .arrow { margin-left: auto; color: var(--muted); font-size: 14px; }
+
+  /* ============ LEGEND / FILTER PANEL ============ */
+  .panel {
+    position: absolute; left: 18px; bottom: 18px; z-index: 1000;
+    width: 230px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; backdrop-filter: blur(14px); overflow: hidden;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 15px 10px; cursor: pointer;
+  }
+  .panel-head .title { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
+  .panel-head .count {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--cyan);
+    background: rgba(43,212,255,0.1); border-radius: 6px; padding: 2px 7px;
+  }
+  .panel-body { padding: 4px 8px 10px; max-height: 50vh; overflow-y: auto; }
+
+  .filter-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 8px;
+    border-radius: 9px; cursor: pointer; user-select: none; transition: background .12s;
+  }
+  .filter-row:hover { background: rgba(255,255,255,0.04); }
+  .filter-row.off { opacity: 0.38; }
+  .filter-row .swatch {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .filter-row .fname { font-size: 13px; flex: 1; }
+  .filter-row .fcount { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+
+  .panel-foot {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted);
+    padding: 9px 15px; border-top: 1px solid var(--border); letter-spacing: 0.04em;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .refresh-btn {
+    background: none; border: none; color: var(--cyan); cursor: pointer;
+    font-family: inherit; font-size: 9.5px; letter-spacing: 0.08em; padding: 0;
+  }
+  .refresh-btn:hover { text-decoration: underline; }
+
+  /* ============ MARKERS ============ */
+  .disaster-marker { position: relative; }
+  .disaster-marker .ring {
+    position: absolute; left: 50%; top: 50%; border-radius: 50%;
+    transform: translate(-50%,-50%); border: 2px solid currentColor;
+    animation: ring-pulse 2.4s ease-out infinite;
+  }
+  @keyframes ring-pulse {
+    0%   { width: 10px; height: 10px; opacity: 0.9; }
+    100% { width: 46px; height: 46px; opacity: 0; }
+  }
+  .disaster-marker .core {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 13px; height: 13px; border-radius: 50%; background: currentColor;
+    box-shadow: 0 0 12px currentColor, 0 0 4px #fff inset;
+    display: grid; place-items: center; font-size: 8px;
+  }
+
+  /* ============ POPUP ============ */
+  .leaflet-popup-content-wrapper {
+    background: var(--panel-solid); color: var(--text);
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  .leaflet-popup-tip { background: var(--panel-solid); border: 1px solid var(--border); }
+  .leaflet-popup-content { margin: 14px 16px; font-family: 'Space Grotesk', sans-serif; }
+  .leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+  .pop-type {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 6px; margin-bottom: 8px;
+  }
+  .pop-title { font-size: 15px; font-weight: 700; margin: 0 0 8px; line-height: 1.25; }
+  .pop-meta { font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .pop-meta b { color: var(--text); font-weight: 600; }
+  .pop-link {
+    display: inline-block; margin-top: 10px; font-size: 12px; color: var(--cyan);
+    text-decoration: none; font-weight: 600;
+  }
+  .pop-link:hover { text-decoration: underline; }
+
+  /* ============ LOADING ============ */
+  #loader {
+    position: absolute; inset: 0; z-index: 2000; display: grid; place-items: center;
+    background: var(--bg); transition: opacity .5s; pointer-events: none;
+  }
+  #loader.hidden { opacity: 0; }
+  .loader-inner { text-align: center; }
+  .loader-globe { font-size: 52px; animation: spin 3s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cyan);
+    letter-spacing: 0.2em; text-transform: uppercase; margin-top: 16px;
+  }
+
+  /* toast for errors */
+  #toast {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+    z-index: 1500; background: var(--panel-solid); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 16px; font-size: 12px; color: var(--muted);
+    opacity: 0; transition: all .3s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .leaflet-control-zoom a {
+    background: var(--panel-solid) !important; color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+  .leaflet-control-attribution {
+    background: rgba(5,6,10,0.6) !important; color: var(--muted) !important;
+  }
+  .leaflet-control-attribution a { color: var(--cyan) !important; }
+
+  @media (max-width: 640px) {
+    .brand .sub { display: none; }
+    .live-pill { display: none; }
+    .panel { width: calc(100% - 36px); }
+    .dropdown-menu { width: 260px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<header>
+  <div class="brand">
+    <span class="globe">🌍</span>
+    <div>
+      <h1>Disaster Map</h1>
+      <div class="sub">Real-Time Earth Monitor</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="live-pill">
+    <span class="live-dot"></span>
+    <span id="live-label">LIVE · syncing…</span>
+  </div>
+
+  <div class="dropdown" id="projDropdown">
+    <button class="dropdown-btn" id="projBtn">
+      <span>🚀</span>
+      <span>Check out my other projects</span>
+      <span class="chev">▼</span>
+    </button>
+    <div class="dropdown-menu">
+      <div class="menu-head">My Projects</div>
+      <a class="project-link" href="https://universe-map.vercel.app/" target="_blank" rel="noopener">
+        <span class="pemoji">🪐</span>
+        <span>
+          <div class="pname">Universe Map</div>
+          <div class="pdesc">Interactive map of satellites & orbits</div>
+        </span>
+        <span class="arrow">↗</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="panel" id="panel">
+  <div class="panel-head" id="panelHead">
+    <span class="title">Active Events</span>
+    <span class="count" id="totalCount">—</span>
+  </div>
+  <div class="panel-body" id="filters"></div>
+  <div class="panel-foot">
+    <span id="updated">updating…</span>
+    <button class="refresh-btn" id="refreshBtn">↻ REFRESH</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="loader">
+  <div class="loader-inner">
+    <span class="loader-globe">🌍</span>
+    <div class="loader-text">Scanning the planet…</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   DISASTER MAP — real-time natural disaster tracker
+   Data: USGS Earthquake API + NASA EONET (no API key required)
+   ============================================================ */
+
+const TYPES = {
+  earthquake: { label: 'Earthquakes',   emoji: '🔴', color: '#ff3b5c' },
+  volcano:    { label: 'Volcanoes',     emoji: '🌋', color: '#ff7a18' },
+  storm:      { label: 'Storms & Cyclones', emoji: '🌀', color: '#2bd4ff' },
+  wildfire:   { label: 'Wildfires',     emoji: '🔥', color: '#ff5e3a' },
+  flood:      { label: 'Floods',        emoji: '🌊', color: '#3a7bff' },
+  tsunami:    { label: 'Tsunamis',      emoji: '🌊', color: '#b06bff' },
+  tornado:    { label: 'Tornadoes',     emoji: '🌪️', color: '#ffd23a' },
+  other:      { label: 'Other Hazards', emoji: '⚠️', color: '#9aa6bd' },
+};
+
+// Map NASA EONET category ids -> our types
+const EONET_MAP = {
+  severeStorms: 'storm',
+  volcanoes:    'volcano',
+  wildfires:    'wildfire',
+  floods:       'flood',
+  landslides:   'other',
+  seaLakeIce:   'other',
+  drought:      'other',
+  dustHaze:     'other',
+  earthquakes:  'earthquake',
+  snow:         'other',
+  tempExtremes: 'other',
+  watercolor:   'other',
+  manmade:      'other',
+};
+
+const map = L.map('map', {
+  center: [20, 0],
+  zoom: 2.6,
+  minZoom: 2,
+  maxZoom: 12,
+  worldCopyJump: true,
+  zoomControl: true,
+  attributionControl: true,
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO · Data: USGS &amp; NASA EONET',
+  subdomains: 'abcd',
+  maxZoom: 19,
+}).addTo(map);
+
+// Layer groups per type
+const layers = {};
+const enabled = {};
+const counts = {};
+Object.keys(TYPES).forEach(t => {
+  layers[t] = L.layerGroup().addTo(map);
+  enabled[t] = true;
+  counts[t] = 0;
+});
+
+let allEvents = [];
+
+/* ---------- Marker rendering ---------- */
+function makeIcon(type, scale = 1) {
+  const color = TYPES[type].color;
+  const s = Math.max(0.8, Math.min(scale, 2.2));
+  return L.divIcon({
+    className: 'disaster-marker',
+    html: `<div style="color:${color}">
+             <span class="ring"></span>
+             <span class="core" style="width:${13*s}px;height:${13*s}px"></span>
+           </div>`,
+    iconSize: [0, 0],
+  });
+}
+
+function esc(str) {
+  return String(str ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function timeAgo(ts) {
+  if (!ts) return 'unknown time';
+  const diff = Date.now() - ts;
+  const m = Math.round(diff / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function popupHtml(ev) {
+  const t = TYPES[ev.type];
+  const metaRows = [];
+  if (ev.magnitude != null) metaRows.push(`<b>Magnitude:</b> ${esc(ev.magnitude)}`);
+  if (ev.place)             metaRows.push(`<b>Location:</b> ${esc(ev.place)}`);
+  if (ev.time)              metaRows.push(`<b>When:</b> ${timeAgo(ev.time)} · ${new Date(ev.time).toLocaleString()}`);
+  metaRows.push(`<b>Coords:</b> ${ev.lat.toFixed(2)}, ${ev.lng.toFixed(2)}`);
+  metaRows.push(`<b>Source:</b> ${esc(ev.source)}`);
+
+  return `
+    <span class="pop-type" style="color:${t.color};background:${t.color}1a">${t.emoji} ${esc(t.label.replace(/s$/,''))}</span>
+    <h3 class="pop-title">${esc(ev.title)}</h3>
+    <div class="pop-meta">${metaRows.join('<br>')}</div>
+    ${ev.url ? `<a class="pop-link" href="${esc(ev.url)}" target="_blank" rel="noopener">View details ↗</a>` : ''}
+  `;
+}
+
+function render() {
+  Object.values(layers).forEach(l => l.clearLayers());
+  Object.keys(counts).forEach(t => counts[t] = 0);
+
+  allEvents.forEach(ev => {
+    counts[ev.type]++;
+    if (!enabled[ev.type]) return;
+    const scale = ev.magnitude ? 0.7 + ev.magnitude * 0.18 : 1;
+    const marker = L.marker([ev.lat, ev.lng], { icon: makeIcon(ev.type, scale) });
+    marker.bindPopup(popupHtml(ev), { maxWidth: 300, minWidth: 240 });
+    marker.addTo(layers[ev.type]);
+  });
+
+  updateUI();
+}
+
+/* ---------- UI ---------- */
+function updateUI() {
+  const visible = allEvents.filter(e => enabled[e.type]).length;
+  document.getElementById('totalCount').textContent = visible;
+
+  const box = document.getElementById('filters');
+  box.innerHTML = '';
+  Object.keys(TYPES).forEach(t => {
+    if (counts[t] === 0) return; // hide empty categories
+    const row = document.createElement('div');
+    row.className = 'filter-row' + (enabled[t] ? '' : ' off');
+    row.innerHTML = `
+      <span class="swatch" style="color:${TYPES[t].color};background:${TYPES[t].color}"></span>
+      <span class="fname">${TYPES[t].emoji} ${TYPES[t].label}</span>
+      <span class="fcount">${counts[t]}</span>`;
+    row.onclick = () => { enabled[t] = !enabled[t]; render(); };
+    box.appendChild(row);
+  });
+
+  if (visible === 0 && allEvents.length === 0) {
+    box.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--muted);text-align:center">No active events found right now.</div>';
+  }
+}
+
+function setUpdated() {
+  document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+  document.getElementById('live-label').textContent = 'LIVE · ' + allEvents.length + ' events';
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+/* ---------- Data fetching ---------- */
+async function fetchEarthquakes() {
+  // significant + magnitude 2.5+ in the last day
+  const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('USGS ' + res.status);
+  const data = await res.json();
+  return data.features.map(f => {
+    const [lng, lat] = f.geometry.coordinates;
+    const p = f.properties;
+    const isTsunami = p.tsunami === 1;
+    return {
+      type: isTsunami ? 'tsunami' : 'earthquake',
+      title: p.title || `M${p.mag} Earthquake`,
+      magnitude: p.mag,
+      place: p.place,
+      time: p.time,
+      lat, lng,
+      url: p.url,
+      source: 'USGS',
+    };
+  });
+}
+
+async function fetchEONET() {
+  const url = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('EONET ' + res.status);
+  const data = await res.json();
+  const out = [];
+  data.events.forEach(ev => {
+    const catId = ev.categories[0]?.id;
+    const type = EONET_MAP[catId] || 'other';
+    // use the most recent geometry point
+    const geos = ev.geometry || [];
+    const g = geos[geos.length - 1];
+    if (!g) return;
+    let lat, lng;
+    if (g.type === 'Point') {
+      [lng, lat] = g.coordinates;
+    } else {
+      // polygon — take first coordinate of the ring
+      const ring = g.coordinates?.[0]?.[0] || g.coordinates?.[0];
+      if (!ring) return;
+      [lng, lat] = Array.isArray(ring[0]) ? ring[0] : ring;
+    }
+    if (typeof lat !== 'number' || typeof lng !== 'number') return;
+
+    let mag = null;
+    if (g.magnitudeValue != null) mag = `${g.magnitudeValue} ${g.magnitudeUnit || ''}`.trim();
+
+    out.push({
+      type,
+      title: ev.title,
+      magnitude: g.magnitudeValue ?? null,
+      magLabel: mag,
+      place: ev.categories[0]?.title,
+      time: g.date ? new Date(g.date).getTime() : null,
+      lat, lng,
+      url: ev.sources?.[0]?.url || ev.link,
+      source: 'NASA EONET',
+    });
+  });
+  return out;
+}
+
+async function load() {
+  const results = await Promise.allSettled([fetchEarthquakes(), fetchEONET()]);
+  const events = [];
+  let failed = 0;
+  results.forEach(r => {
+    if (r.status === 'fulfilled') events.push(...r.value);
+    else { failed++; console.error(r.reason); }
+  });
+
+  if (events.length === 0 && failed > 0) {
+    toast('⚠ Could not reach disaster feeds. Retrying soon…');
+  } else if (failed > 0) {
+    toast('Some feeds were unavailable — showing partial data.');
+  }
+
+  allEvents = events;
+  render();
+  setUpdated();
+  document.getElementById('loader').classList.add('hidden');
+}
+
+/* ---------- Dropdown ---------- */
+const dd = document.getElementById('projDropdown');
+document.getElementById('projBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  dd.classList.toggle('open');
+});
+document.addEventListener('click', () => dd.classList.remove('open'));
+
+/* ---------- Panel collapse + refresh ---------- */
+document.getElementById('refreshBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('updated').textContent = 'refreshing…';
+  load();
+});
+
+/* ---------- Init ---------- */
+load();
+setInterval(load, 5 * 60 * 1000); // refresh every 5 minutes
+</script>
+</body>
+</html>
