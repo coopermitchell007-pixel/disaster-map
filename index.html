@@ -297,10 +297,30 @@
   .leaflet-control-attribution a { color: var(--cyan) !important; }
 
   @media (max-width: 640px) {
+    header { gap: 8px; padding: 10px 12px; }
+    .brand .globe { font-size: 22px; }
+    .brand h1 { font-size: 16px; }
     .brand .sub { display: none; }
     .live-pill { display: none; }
-    .panel { width: calc(100% - 36px); }
-    .dropdown-menu { width: 260px; }
+    /* collapse the long projects button down to just the rocket + chevron */
+    #projBtn span:nth-child(2) { display: none; }
+    #projBtn { padding: 9px 11px; }
+    .dropdown-menu { width: min(280px, calc(100vw - 24px)); }
+    .panel { left: 12px; right: 12px; bottom: 12px; width: auto; }
+    .panel-body { max-height: 38vh; }
+    .filter-row { padding: 11px 10px; }            /* bigger touch targets */
+    .filter-row .fname { font-size: 14px; }
+    .leaflet-popup-content { font-size: 13px; }
+    .about-card { max-width: 100%; padding: 22px 18px 20px; }
+    /* keep zoom controls clear of the bottom panel */
+    .leaflet-bottom.leaflet-left { bottom: 46vh; }
+  }
+  @media (max-width: 640px) and (orientation: landscape) {
+    .panel-body { max-height: 30vh; }
+  }
+  /* larger default tap targets on any touch device */
+  @media (hover: none) {
+    .filter-row, .dropdown-btn, .refresh-btn { -webkit-tap-highlight-color: transparent; }
   }
 </style>
 </head>
@@ -370,7 +390,7 @@
         <div class="about-sub">Real-Time Earth Monitor</div>
       </div>
     </div>
-    <p>A live map of the Earth tracking natural disasters as they happen — earthquakes, volcanoes, storms &amp; cyclones, wildfires, floods and tsunamis — pulled from public <b>USGS</b> and <b>NASA EONET</b> feeds and refreshed automatically.</p>
+    <p>A live map of the Earth tracking natural disasters as they happen — earthquakes, volcanoes, storms &amp; cyclones, wildfires, floods, tsunamis, extreme heat, winter storms and drought — pulled from public <b>USGS</b>, <b>NASA EONET</b>, <b>NOAA / NWS</b> and <b>GDACS</b> feeds and refreshed automatically.</p>
 
     <div class="about-divider"></div>
 
@@ -415,6 +435,9 @@ const TYPES = {
   flood:      { label: 'Floods',        emoji: '🌊', color: '#3a7bff' },
   tsunami:    { label: 'Tsunamis',      emoji: '🌊', color: '#b06bff' },
   tornado:    { label: 'Tornadoes',     emoji: '🌪️', color: '#ffd23a' },
+  heat:       { label: 'Extreme Heat',  emoji: '🌡️', color: '#ff8a3c' },
+  winter:     { label: 'Winter & Ice',  emoji: '❄️', color: '#7fe3ff' },
+  drought:    { label: 'Drought',       emoji: '🏜️', color: '#d8a24a' },
   other:      { label: 'Other Hazards', emoji: '⚠️', color: '#9aa6bd' },
 };
 
@@ -495,6 +518,8 @@ function popupHtml(ev) {
   const t = TYPES[ev.type];
   const metaRows = [];
   if (ev.magnitude != null) metaRows.push(`<b>Magnitude:</b> ${esc(ev.magnitude)}`);
+  if (ev.alertLevel)        metaRows.push(`<b>Alert level:</b> ${esc(ev.alertLevel)}`);
+  if (ev.severity)          metaRows.push(`<b>Severity:</b> ${esc(ev.severity)}`);
   if (ev.place)             metaRows.push(`<b>Location:</b> ${esc(ev.place)}`);
   if (ev.time)              metaRows.push(`<b>When:</b> ${timeAgo(ev.time)} · ${new Date(ev.time).toLocaleString()}`);
   metaRows.push(`<b>Coords:</b> ${ev.lat.toFixed(2)}, ${ev.lng.toFixed(2)}`);
@@ -562,30 +587,38 @@ function toast(msg) {
 
 /* ---------- Data fetching ---------- */
 async function fetchEarthquakes() {
-  // significant + magnitude 2.5+ in the last day
-  const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('USGS ' + res.status);
-  const data = await res.json();
-  return data.features.map(f => {
-    const [lng, lat] = f.geometry.coordinates;
-    const p = f.properties;
-    const isTsunami = p.tsunami === 1;
-    return {
-      type: isTsunami ? 'tsunami' : 'earthquake',
-      title: p.title || `M${p.mag} Earthquake`,
-      magnitude: p.mag,
-      place: p.place,
-      time: p.time,
-      lat, lng,
-      url: p.url,
-      source: 'USGS',
-    };
+  // Pull several USGS feeds for far broader coverage, then de-duplicate by id:
+  //  · 2.5_day        — recent moderate quakes (fresh)
+  //  · 4.5_week       — every significant quake worldwide over the past week
+  //  · significant_month — the month's headline events
+  const feeds = ['2.5_day', '4.5_week', 'significant_month'];
+  const results = await Promise.allSettled(feeds.map(f =>
+    fetch(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${f}.geojson`).then(r => {
+      if (!r.ok) throw new Error('USGS ' + f + ' ' + r.status); return r.json();
+    })
+  ));
+  const seen = new Set(), out = [];
+  results.forEach(res => {
+    if (res.status !== 'fulfilled') return;
+    res.value.features.forEach(f => {
+      if (seen.has(f.id)) return; seen.add(f.id);
+      const [lng, lat] = f.geometry.coordinates;
+      const p = f.properties;
+      out.push({
+        type: p.tsunami === 1 ? 'tsunami' : 'earthquake',
+        title: p.title || `M${p.mag} Earthquake`,
+        magnitude: p.mag, place: p.place, time: p.time,
+        lat, lng, url: p.url, source: 'USGS',
+      });
+    });
   });
+  if (out.length === 0) throw new Error('USGS feeds empty');
+  return out;
 }
 
+// ---- NASA EONET (global natural events) ----
 async function fetchEONET() {
-  const url = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30';
+  const url = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=120';
   const res = await fetch(url);
   if (!res.ok) throw new Error('EONET ' + res.status);
   const data = await res.json();
@@ -626,8 +659,81 @@ async function fetchEONET() {
   return out;
 }
 
+// ---- NOAA / National Weather Service active alerts (USA) ----
+const NWS_MAP = [
+  [/tornado/i, 'tornado'],
+  [/hurricane|tropical|typhoon|storm surge/i, 'storm'],
+  [/thunderstorm|squall|severe weather/i, 'storm'],
+  [/flash flood|flood|coastal flood|seiche/i, 'flood'],
+  [/tsunami/i, 'tsunami'],
+  [/winter|snow|ice|blizzard|freeze|frost|sleet|wind chill|cold/i, 'winter'],
+  [/heat|hot/i, 'heat'],
+  [/fire weather|red flag|wildfire/i, 'wildfire'],
+  [/volcan|ash/i, 'volcano'],
+];
+function nwsType(event) {
+  for (const [re, t] of NWS_MAP) if (re.test(event)) return t;
+  return null; // skip generic advisories (air quality, small craft, etc.)
+}
+function polyCentroid(geometry) {
+  if (!geometry) return null;
+  let ring;
+  if (geometry.type === 'Polygon') ring = geometry.coordinates[0];
+  else if (geometry.type === 'MultiPolygon') ring = geometry.coordinates[0][0];
+  else if (geometry.type === 'Point') return [geometry.coordinates[1], geometry.coordinates[0]];
+  if (!ring || !ring.length) return null;
+  let x = 0, y = 0;
+  ring.forEach(c => { x += c[0]; y += c[1]; });
+  return [y / ring.length, x / ring.length];
+}
+async function fetchNWS() {
+  const res = await fetch('https://api.weather.gov/alerts/active?status=actual', {
+    headers: { 'Accept': 'application/geo+json' },
+  });
+  if (!res.ok) throw new Error('NWS ' + res.status);
+  const data = await res.json();
+  const out = [];
+  data.features.forEach(f => {
+    const p = f.properties;
+    const type = nwsType(p.event || '');
+    if (!type) return;
+    const c = polyCentroid(f.geometry);
+    if (!c) return;
+    out.push({
+      type, title: p.event, place: p.areaDesc,
+      time: p.onset ? new Date(p.onset).getTime() : (p.sent ? new Date(p.sent).getTime() : null),
+      severity: p.severity, lat: c[0], lng: c[1],
+      url: p.uri || (p['@id']), source: 'NOAA / NWS',
+    });
+  });
+  return out;
+}
+
+// ---- GDACS — Global Disaster Alert & Coordination System ----
+const GDACS_MAP = { EQ: 'earthquake', TC: 'storm', FL: 'flood', VO: 'volcano', DR: 'drought', WF: 'wildfire', TS: 'tsunami' };
+async function fetchGDACS() {
+  const res = await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP');
+  if (!res.ok) throw new Error('GDACS ' + res.status);
+  const data = await res.json();
+  const out = [];
+  (data.features || []).forEach(f => {
+    const p = f.properties || {};
+    const type = GDACS_MAP[p.eventtype];
+    if (!type || type === 'earthquake') return; // earthquakes already covered by USGS
+    const coords = f.geometry?.coordinates;
+    if (!coords) return;
+    out.push({
+      type, title: p.name || p.htmldescription || (type + ' event'),
+      place: p.country, time: p.fromdate ? new Date(p.fromdate).getTime() : null,
+      alertLevel: p.alertlevel, lat: coords[1], lng: coords[0],
+      url: p.url?.report || p.url, source: 'GDACS',
+    });
+  });
+  return out;
+}
+
 async function load() {
-  const results = await Promise.allSettled([fetchEarthquakes(), fetchEONET()]);
+  const results = await Promise.allSettled([fetchEarthquakes(), fetchEONET(), fetchNWS(), fetchGDACS()]);
   const events = [];
   let failed = 0;
   results.forEach(r => {
