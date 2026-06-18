@@ -229,6 +229,64 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* ============ ABOUT MODAL ============ */
+  #about-overlay {
+    position: absolute; inset: 0; z-index: 2500; display: grid; place-items: center;
+    background: rgba(3, 4, 8, 0.72); backdrop-filter: blur(6px);
+    opacity: 0; visibility: hidden; transition: opacity .22s, visibility .22s; padding: 20px;
+  }
+  #about-overlay.open { opacity: 1; visibility: visible; }
+  .about-card {
+    position: relative; width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto;
+    background: var(--panel-solid); border: 1px solid var(--border); border-radius: 18px;
+    padding: 26px 26px 24px; box-shadow: 0 30px 70px rgba(0,0,0,0.65);
+    transform: translateY(10px) scale(0.98); transition: transform .22s;
+  }
+  #about-overlay.open .about-card { transform: translateY(0) scale(1); }
+  .about-close {
+    position: absolute; top: 14px; right: 16px; background: none; border: none;
+    color: var(--muted); font-size: 26px; line-height: 1; cursor: pointer;
+  }
+  .about-close:hover { color: var(--text); }
+  .about-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .about-emoji {
+    font-size: 30px; width: 56px; height: 56px; display: grid; place-items: center;
+    background: rgba(43,212,255,0.10); border-radius: 14px; flex-shrink: 0;
+    filter: drop-shadow(0 0 10px rgba(43,212,255,0.4));
+  }
+  .about-title {
+    font-size: 21px; font-weight: 700; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, #fff, #9fdcff);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .about-sub {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em;
+    color: var(--cyan); text-transform: uppercase; opacity: 0.85; margin-top: 2px;
+  }
+  .about-card p { font-size: 13.5px; line-height: 1.65; color: #c2cbdd; margin: 10px 0; }
+  .about-card b { color: var(--text); font-weight: 600; }
+  .about-divider { height: 1px; background: var(--border); margin: 18px 0; }
+  .about-maker { font-size: 16px; font-weight: 700; color: #fff; }
+  .about-meta { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .about-meta > div { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; }
+  .about-meta span { color: var(--muted); }
+  .about-meta b { color: var(--text); text-align: right; font-weight: 600; }
+  .about-meta a { color: var(--cyan); text-decoration: none; }
+  .about-meta a:hover { text-decoration: underline; }
+  .about-project {
+    display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px;
+    text-decoration: none; color: var(--text); background: rgba(43,212,255,0.06);
+    border: 1px solid var(--border); border-radius: 12px; transition: background .15s, border-color .15s;
+  }
+  .about-project:hover { background: rgba(43,212,255,0.12); border-color: rgba(43,212,255,0.5); }
+  .about-project .ap-emoji {
+    font-size: 22px; width: 42px; height: 42px; display: grid; place-items: center;
+    background: rgba(43,212,255,0.10); border-radius: 10px; flex-shrink: 0;
+  }
+  .about-project b { font-size: 14px; }
+  .about-project .ap-desc { font-size: 11.5px; color: var(--muted); }
+  .about-project .ap-arrow { margin-left: auto; color: var(--cyan); font-size: 15px; }
+
   .leaflet-control-zoom a {
     background: var(--panel-solid) !important; color: var(--text) !important;
     border-color: var(--border) !important;
@@ -266,6 +324,8 @@
     <span id="live-label">LIVE · syncing…</span>
   </div>
 
+  <button class="dropdown-btn" id="aboutBtn" title="About this project & its maker" style="padding:9px 12px">ℹ️</button>
+
   <div class="dropdown" id="projDropdown">
     <button class="dropdown-btn" id="projBtn">
       <span>🚀</span>
@@ -299,6 +359,40 @@
 </div>
 
 <div id="toast"></div>
+
+<div id="about-overlay">
+  <div class="about-card">
+    <button class="about-close" id="aboutClose" title="Close">×</button>
+    <div class="about-head">
+      <span class="about-emoji">🌍</span>
+      <div>
+        <div class="about-title">Disaster Map</div>
+        <div class="about-sub">Real-Time Earth Monitor</div>
+      </div>
+    </div>
+    <p>A live map of the Earth tracking natural disasters as they happen — earthquakes, volcanoes, storms &amp; cyclones, wildfires, floods and tsunamis — pulled from public <b>USGS</b> and <b>NASA EONET</b> feeds and refreshed automatically.</p>
+
+    <div class="about-divider"></div>
+
+    <div class="about-maker">Made by Cooper Mitchell</div>
+    <p>I build interactive maps of the cosmos and the Earth — blending real, live data with clean, polished interfaces. Everything here is hand-built and free to explore.</p>
+
+    <div class="about-meta">
+      <div><span>Built with</span><b>Leaflet · live USGS &amp; NASA data</b></div>
+      <div><span>Updates</span><b>Auto-refresh every 5 minutes</b></div>
+      <div><span>GitHub</span><a href="https://github.com/coopermitchell007-pixel" target="_blank" rel="noopener">@coopermitchell007-pixel ↗</a></div>
+    </div>
+
+    <div class="about-divider"></div>
+
+    <div class="about-maker" style="font-size:13px">My other projects</div>
+    <a class="about-project" href="https://universe-map.vercel.app/" target="_blank" rel="noopener">
+      <span class="ap-emoji">🪐</span>
+      <span><b>Universe Map</b><br><span class="ap-desc">Interactive map from Earth to the edge of the universe</span></span>
+      <span class="ap-arrow">↗</span>
+    </a>
+  </div>
+</div>
 
 <div id="loader">
   <div class="loader-inner">
@@ -560,6 +654,17 @@ document.getElementById('projBtn').addEventListener('click', (e) => {
   dd.classList.toggle('open');
 });
 document.addEventListener('click', () => dd.classList.remove('open'));
+
+/* ---------- About modal ---------- */
+const aboutOverlay = document.getElementById('about-overlay');
+document.getElementById('aboutBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  aboutOverlay.classList.add('open');
+});
+function closeAbout() { aboutOverlay.classList.remove('open'); }
+document.getElementById('aboutClose').addEventListener('click', closeAbout);
+aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) closeAbout(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAbout(); });
 
 /* ---------- Panel collapse + refresh ---------- */
 document.getElementById('refreshBtn').addEventListener('click', (e) => {
